@@ -1,8 +1,8 @@
 # OsWorld Data Cleaning Environment Architecture
 
-This `Build_process` directory contains details describing the environment's internal mechanics. This system represents an OpenEnv-compliant reinforcement learning and heuristic evaluation wrapper targeting automated programmatic tasks.
+This `Build_process` directory contains details describing the environment's internal mechanics. This system represents an OpenEnv-compliant reinforcement learning and heuristic evaluation wrapper targeting automated programmatic data cleaning tasks.
 
 ### Documentation Index
-- [`01_scenarios_and_difficulties.md`](./01_scenarios_and_difficulties.md): Breakdowns of the active datasets, task types, and expected edge states the agent operates within.
-- [`02_grading_mechanics.md`](./02_grading_mechanics.md): The internal engineering behind the Semantic DataFrame Grader overcoming the vulnerabilities of brute-force binary string validation.
-- [`03_reward_shaping.md`](./03_reward_shaping.md): Deep-dive into the thermodynamics-based $\Delta \Phi$ continuous scoring matrices, terminal bonuses, and step-decay penalty structures.
+- [`01_scenarios_and_difficulties.md`](./01_scenarios_and_difficulties.md): Breakdowns of the 6 task variants across Easy, Medium, and Hard tiers, including start/end states and agent constraints.
+- [`02_grading_mechanics.md`](./02_grading_mechanics.md): The multi-component semantic grader ($\Phi$) combining content F1, schema correctness, validity checks, and constraint satisfaction with anti-cheat protections.
+- [`03_reward_shaping.md`](./03_reward_shaping.md): Potential-based $\Delta\Phi$ reward shaping with step penalties, regression penalties, and terminal bonuses.

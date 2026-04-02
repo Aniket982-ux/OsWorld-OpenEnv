@@ -60,7 +60,16 @@ class OsworldEnv(
         """
         Parse server response into StepResult[OsworldObservation].
         """
-        print(f"RAW PAYLOAD FROM SERVER: {payload}")
+        # Formatted server response summary (instead of raw payload dump)
+        obs_preview = payload.get("observation", {})
+        screen = obs_preview.get("screen_text", "")
+        screen_short = (screen[:120] + "...") if len(screen) > 120 else screen
+        print(
+            f"  Server → score={obs_preview.get('score', 0.0):.4f} | "
+            f"reward={payload.get('reward', 0.0):+.4f} | "
+            f"done={payload.get('done', False)} | "
+            f"screen: {screen_short}"
+        )
         obs_data = payload.get("observation", {})
         observation = OsworldObservation(
             screen_text=obs_data.get("screen_text", ""),

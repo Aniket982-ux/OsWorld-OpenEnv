@@ -5,15 +5,15 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Osworld Environment Implementation.
+OsWorld Environment Implementation.
 
-A simple test environment that echoes back messages sent to it.
-Perfect for testing HTTP server infrastructure.
+Data Cleaning environment with multi-component grading,
+6 task variants across 3 difficulty tiers, and reward shaping.
 """
 
 import contextlib
 import io
-from typing import Any, Dict
+from typing import Dict
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
@@ -24,11 +24,22 @@ try:
 except ImportError:
     from models import OsworldAction, OsworldObservation, TaskLevel
 
+try:
+    from .tasks import TaskConfig, get_task_setup, get_next_level
+    from .graders import SemanticGrader
+    from .rewards import RewardCalculator
+except ImportError:
+    from tasks import TaskConfig, get_task_setup, get_next_level
+    from graders import SemanticGrader
+    from rewards import RewardCalculator
+
 
 class OsworldEnvironment(Environment):
     """
-    Data Cleaning Environment.
-    Supports step-wise reward shaping, deterministic grading, and structured actions.
+    Data Cleaning Environment with multi-component grading.
+
+    Supports 6 task variants across Easy/Medium/Hard tiers,
+    step-wise reward shaping, and anti-cheat grading.
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
@@ -39,112 +50,101 @@ class OsworldEnvironment(Environment):
         self._reset_count = 0
         self.files: Dict[str, str] = {}
         self.task_level: TaskLevel = TaskLevel.EASY
+        self.task_config: TaskConfig = None
         self.screen_text = ""
         self.max_steps = 10
+
+        # Modular components
+        self.grader = SemanticGrader()
+        self.reward_calculator = RewardCalculator()
 
     @property
     def state(self) -> State:
         """Get the current environment state."""
         return self._state
 
-    def _setup_task(self):
-        self.screen_text = f"Starting {self.task_level.value} data cleaning task."
-        if self.task_level == TaskLevel.EASY:
-            self.files = {"data.csv": "id,name\n1,alice\n1,alice\n2,bob\n"}
-        elif self.task_level == TaskLevel.MEDIUM:
-            self.files = {"data.csv": "id,val\n1,\n2,20\n3,\n"}
-        else:
-            self.files = {"data.csv": "id,val\n1,10\n1,10\n2,\n3,30\n"}
+    def _current_score(self) -> float:
+        """Get current Φ score using the grader."""
+        return self.grader.get_score(
+            self.files,
+            self.task_config.expected_df,
+            self.task_config.constraints,
+        )
 
-    def reset(self) -> OsworldObservation:
+    def reset(self, options: Dict = None) -> OsworldObservation:  # type: ignore[override]
+        """Reset the environment and set up a new task.
+
+        Args:
+            options: Optional dict for curriculum control.
+                     Supports ``{"difficulty": "easy" | "medium" | "hard"}``
+                     to override the automatic cycling schedule.
+        """
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count += 1
-        
-        # Cycle tasks
-        levels = [TaskLevel.EASY, TaskLevel.MEDIUM, TaskLevel.HARD]
-        self.task_level = levels[self._reset_count % 3]
-        self._setup_task()
+
+        # Allow external trainer to override difficulty via options
+        if options and "difficulty" in options:
+            difficulty_map = {
+                "easy": TaskLevel.EASY,
+                "medium": TaskLevel.MEDIUM,
+                "hard": TaskLevel.HARD,
+            }
+            requested = options["difficulty"].lower()
+            self.task_level = difficulty_map.get(requested, get_next_level(self._reset_count))
+        else:
+            # Automatic curriculum: EASY → MEDIUM → HARD → EASY …
+            self.task_level = get_next_level(self._reset_count)
+
+        # Get task variant (cycles within each tier)
+        self.task_config = get_task_setup(self.task_level, self._reset_count)
+        # Copy files so we don't mutate the task definition
+        self.files = dict(self.task_config.files)
+        self.screen_text = self.task_config.screen_text
 
         return OsworldObservation(
             screen_text=self.screen_text,
             files=self.files,
-            current_task=f"Clean data.csv for {self.task_level.value} level.",  
+            current_task=self.task_config.task_description,
             done=False,
             reward=0.0,
-            score=self._get_score(),
+            score=self._current_score(),
         )
 
-    def _get_score(self) -> float:
-        import pandas as pd
-        import io
-        
-        content = self.files.get("data.csv", "")
-        # If the file is completely destroyed or unparseable, return 0.0
-        try:
-            df = pd.read_csv(io.StringIO(content))
-        except Exception:
-            return 0.0
-
-        score = 0.0
-        
-        # 1. Define the Semantic "Golden" State
-        if self.task_level == TaskLevel.EASY:
-            expected_df = pd.DataFrame({"id": [1, 2], "name": ["alice", "bob"]})
-        elif self.task_level == TaskLevel.MEDIUM:
-            expected_df = pd.DataFrame({"id": [1, 2, 3], "val": [0, 20, 0]})
-        else:
-            expected_df = pd.DataFrame({"id": [1, 2, 3], "val": [10, 0, 30]})
-
-        try:
-            # 2. Check Schema Integrity (Columns)
-            if list(df.columns) == list(expected_df.columns):
-                score += 0.2
-            
-            # 3. Handle Types to ensure fair comparison
-            for col in expected_df.columns:
-                if col in df.columns and expected_df[col].dtype == 'int64':
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-999).astype(int)
-
-            # 4. Check Dataset Shape (Row Count)
-            if len(df) == len(expected_df):
-                score += 0.2
-
-            # 5. Semantic Row Value Comparison 
-            # Sort both so row order doesn't punish the agent if it rearranged them
-            df_sorted = df.sort_values("id").reset_index(drop=True)
-            exp_sorted = expected_df.sort_values("id").reset_index(drop=True)
-            
-            # Check how many exact rows match semantically, max out at 1.0 ratio
-            # Use drop_duplicates on the merge so multiple 'Alice' records don't overinflate the join
-            merged = df_sorted.drop_duplicates().merge(exp_sorted.drop_duplicates(), how='inner')
-            matching_rows_ratio = min(1.0, len(merged) / len(exp_sorted) if len(exp_sorted) > 0 else 0)
-            
-            score += (0.6 * matching_rows_ratio)
-
-            return min(1.0, round(score, 2))
-        except Exception:
-            return min(1.0, round(score, 2))
-
     def step(self, action: OsworldAction) -> OsworldObservation:  # type: ignore[override]
+        """Execute an action and return the observation."""
         self._state.step_count += 1
-        reward = -0.05
         self.screen_text = f"Executed {action.action_type}."
 
-        old_score = self._get_score()
+        is_error = False
+        is_unknown = False
 
+        old_score = self._current_score()
+
+        # ── Action Execution ──
         if action.action_type == "execute_python":
             code = action.payload.get("code", "")
+            # Snapshot files before exec so we can roll back on failure
+            file_snapshot = dict(self.files)
             f = io.StringIO()
             try:
-                # Need to explicitly import pandas inside the exec environment to support agent scripts natively 
                 with contextlib.redirect_stdout(f):
                     local_vars = {"files": self.files}
-                    exec("import pandas as pd\nimport io\nimport traceback\n" + code, {}, local_vars)
-                self.screen_text = f.getvalue() or f"Successfully executed shape: {len(code)} chars."
-            except Exception as e:
+                    exec(
+                        "import pandas as pd\nimport io\nimport traceback\n" + code,
+                        {},
+                        local_vars,
+                    )
+                self.screen_text = (
+                    f.getvalue() or f"Successfully executed: {len(code)} chars."
+                )
+            except Exception:
                 import traceback
-                self.screen_text = f"Python Execution Error:\n{traceback.format_exc()}"
-                reward -= 0.2  # penalty for syntax error
+                # Roll back any partial file mutations made before the crash
+                self.files = file_snapshot
+                self.screen_text = (
+                    f"Python Execution Error:\n{traceback.format_exc()}"
+                )
+                is_error = True
 
         elif action.action_type == "remove_duplicates":
             filename = action.payload.get("filename", "data.csv")
@@ -162,26 +162,31 @@ class OsworldEnvironment(Environment):
             filename = action.payload.get("filename", "data.csv")
             fill_val = action.payload.get("value", "0")
             if filename in self.files:
-                self.files[filename] = self.files[filename].replace(",\n", f",{fill_val}\n")
+                self.files[filename] = self.files[filename].replace(
+                    ",\n", f",{fill_val}\n"
+                )
 
         else:
-            reward -= 0.2  # penalty for unknown action
-            self.screen_text = "Unknown action."
+            is_unknown = True
+            self.screen_text = f"Unknown action: {action.action_type}"
 
-        new_score = self._get_score()
-        # The Shaping Function Φ(s) - scales by score jump or regression
-        reward += (new_score - old_score)
+        # ── Grading & Reward ──
+        new_score = self._current_score()
+        done = self._state.step_count >= self.max_steps or new_score >= 1.0
 
-        done = self._state.step_count >= self.max_steps or new_score >= 1.0     
-        if done and new_score >= 1.0:
-            reward += 10.0  # Massive terminal reward upon goal completion
+        reward = self.reward_calculator.calculate(
+            old_score=old_score,
+            new_score=new_score,
+            done=done,
+            is_error=is_error,
+            is_unknown=is_unknown,
+        )
 
         return OsworldObservation(
             screen_text=self.screen_text,
             files=self.files,
-            current_task=f"Clean data.csv for {self.task_level.value} level.",
+            current_task=self.task_config.task_description,
             done=done,
             reward=reward,
-            score=new_score
+            score=new_score,
         )
-        return self._state
