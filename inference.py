@@ -165,6 +165,7 @@ CRITICAL: Your response must be a single, valid JSON object matching the schema 
                     history.append(user_msg)
                     history.append({"role": "assistant", "content": content})
 
+                    import json
                     try:
                         parsed_json = json.loads(content)
                         # Map to our models to validate
