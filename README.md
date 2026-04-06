@@ -35,8 +35,22 @@ You must create a `.env` file in the root of the project with your API key:
 
 *(Note: The environment server itself does not require an API key to run, only the baseline agent script requires it).*
 
-## Task Structure
+## Action and Observation Space Definitions
 
+### Observation Space (`OsworldObservation`)
+- `screen_text` (str): Terminal or textual output from the executed action.
+- `files` (Dict[str, str]): Key-value map of workspace file states (e.g., `'data.csv'` -> content).
+- `current_task` (str): Objective to accomplish.
+- `score` (float): Current normalized completion score from 0.0 to 1.0.
+- `done` (bool): Indicates episode termination.
+- `reward` (float): Calculated Delta-Phi shaped reward.
+
+### Action Space (`OsworldAction`)
+Actions strictly conform to a Pydantic structure utilizing `action_type` (str) and `payload` (Dict):
+- `action_type`: One of `"inspect_schema"`, `"view_head"`, `"read_file"`, `"preview_changes"`, `"execute_python"`, `"remove_duplicates"`, or `"fill_nulls"`.
+- `payload`: Contains parameters such as `"code"` (str, executed inside sandbox), `"filename"` (str), or `"n"` (int).
+
+## Task Structure
 The environment includes **12 task variants** across 3 difficulty tiers:
 
 ### Easy (4 variants)
@@ -79,11 +93,13 @@ Score = 0.4 * content_score    (F1: precision + recall via merge)
 
 ## Running the Project
 
-### 1. Run the Baseline Agent (End-to-End)
-This executes the LLM agent across the 15-episode cycle, encountering all 12 task variants. It spins up the server dynamically.
+### 1. Run the Benchmarking Inference Script (Hackathon)
+To run a strictly validated evaluation producing OpenEnv standard `[START]`, `[STEP]`, `[END]` outputs:
 ```bash
-uv run baseline.py
+uv run inference.py
 ```
+**Baseline Scores:**
+Using our default `Qwen/Qwen2.5-72B-Instruct` via a remote API endpoint reliably nets a normalized `score` of **~0.90** on Easy Tasks, and **~0.60** on Hard tasks. The soft multi-component grader guarantees meaningful signal and partial rewards!
 
 ### 2. Standalone Server Mode
 If you are developing your own agent, run the server separately:

@@ -238,6 +238,20 @@ class OsworldEnvironment(Environment):
         new_score = self._current_score()
         done = self._state.step_count >= self.max_steps or new_score >= 1.0
 
+        # Check for destructive action
+        is_destructive = False
+        target_file = self.task_config.constraints.get("target_file", "data.csv")
+        content = self.files.get(target_file, "")
+        if content and len(self.task_config.expected_df) > 0:
+            try:
+                df_curr = pd.read_csv(io.StringIO(content))
+                expected_len = len(self.task_config.expected_df)
+                if len(df_curr) < (0.2 * expected_len):
+                    is_destructive = True
+            except Exception:
+                # If it's wholly unparseable, we let validity/error penalties handle it or consider it destructive
+                is_destructive = True
+
         reward = self.reward_calculator.calculate(
             old_score=old_score,
             new_score=new_score,
@@ -247,6 +261,7 @@ class OsworldEnvironment(Environment):
             first_action_type=self.first_action_type,
             is_error=is_error,
             is_unknown=is_unknown,
+            is_destructive=is_destructive,
         )
 
         return OsworldObservation(

@@ -13,12 +13,14 @@ class RewardCalculator:
         step_penalty: float = -0.03,
         error_penalty: float = -0.2,
         regression_penalty: float = -0.1,
-        terminal_reward: float = 10.0,
+        destructive_penalty: float = -0.5,
+        terminal_reward: float = 1.0,
         inspect_first_bonus: float = 0.05,
     ):
         self.step_penalty = step_penalty
         self.error_penalty = error_penalty
         self.regression_penalty = regression_penalty
+        self.destructive_penalty = destructive_penalty
         self.terminal_reward = terminal_reward
         self.inspect_first_bonus = inspect_first_bonus
 
@@ -32,6 +34,7 @@ class RewardCalculator:
         first_action_type: str | None = None,
         is_error: bool = False,
         is_unknown: bool = False,
+        is_destructive: bool = False,
     ) -> float:
         """Calculate reward from score transition."""
         reward = self.step_penalty
@@ -43,6 +46,10 @@ class RewardCalculator:
         # Error / unknown action penalty
         if is_error or is_unknown:
             reward += self.error_penalty
+
+        # Destructive action penalty
+        if is_destructive:
+            reward += self.destructive_penalty
 
         # ΔΦ shaping
         delta = new_score - old_score

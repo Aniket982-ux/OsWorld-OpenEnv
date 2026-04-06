@@ -75,7 +75,7 @@ class SemanticGrader:
             df_cmp = df[common_cols].copy()
             exp_cmp = expected_df[common_cols].copy()
 
-            # Only coerce numeric types — leave strings exactly as-is
+            # Coerce numeric types AND normalize strings for softer partial-progress scoring
             for col in common_cols:
                 if exp_cmp[col].dtype in ("int64", "float64"):
                     df_cmp[col] = (
@@ -84,7 +84,9 @@ class SemanticGrader:
                         .astype(int)
                     )
                     exp_cmp[col] = exp_cmp[col].astype(int)
-                # Strings: no strip(), no lower() — exact match required
+                elif exp_cmp[col].dtype == "object":
+                    df_cmp[col] = df_cmp[col].astype(str).str.strip().str.lower()
+                    exp_cmp[col] = exp_cmp[col].astype(str).str.strip().str.lower()
 
             df_dedup = df_cmp.drop_duplicates()
             exp_dedup = exp_cmp.drop_duplicates()

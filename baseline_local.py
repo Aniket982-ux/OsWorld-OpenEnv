@@ -1,6 +1,5 @@
 import os
 import json
-from dotenv import load_dotenv
 import openai
 from client import OsworldEnv
 from models import OsworldAction
@@ -39,32 +38,24 @@ class LLMAction(BaseModel):
     action_type: str
     payload: Payload
 
-load_dotenv()
-
-# The environment auto-cycles through 12 task variants across 3 difficulty tiers:
-# (Easy: 4 tasks, Medium: 5 tasks, Hard: 3 tasks)
-# It alternates tiers each reset (Easy -> Medium -> Hard -> Easy...)
-# To ensure the baseline sees every single Medium variant (the max at 5),
-# we need to run 5 * 3 = 15 episodes. (Easy and Hard tasks will naturally repeat).
+# See `baseline.py` for episode logic
 NUM_EPISODES = 15
 
-def main():
-    # Initialize the OpenAI client to point to OpenRouter
-    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-    if not openrouter_api_key:
-        print("Error: OPENROUTER_API_KEY not found in environment.")
-        return
+# Change this to the Ollama model you decided to download
+OLLAMA_MODEL = "qwen2.5-coder:7b"
 
+def main():
+    # Initialize the OpenAI client to point to Local Ollama Instance
     try:
         openai_client = openai.OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=openrouter_api_key,
+            base_url="http://localhost:11434/v1",
+            api_key="ollama", # Local Ollama does not require an API key, but the client expects a non-empty string.
         )
     except openai.OpenAIError as e:
         print(f"Client initialization error: {e}")
         return
 
-    # Connect to the local environment server globally, so reset_count increments
+    # Connect to the local environment server globally
     env = OsworldEnv(base_url="http://localhost:8000").sync()
 
     for episode in range(1, NUM_EPISODES + 1):
@@ -72,12 +63,10 @@ def main():
         print(f"Episode {episode} / {NUM_EPISODES}")
         print(f"==========================================")
         
-        # Reset cycles automatically through variants
         result = env.reset()
         obs = result.observation
         done = result.done
 
-        # Print what task we got
         print(f"Task: {obs.current_task}")
         print(f"Initial Score: {obs.score:.4f}")
 
@@ -112,14 +101,14 @@ PYTHON EXECUTION RULES:
 For `execute_python` and `preview_changes`, your code runs in a sandboxed `exec()` environment.
 - You have access to a `files` dictionary containing the file strings.
 - You MUST read and write the CSV via this dict: `files["data.csv"]`
-- Example Pattern:
-  ```python
-  import pandas as pd
-  import io
-  df = pd.read_csv(io.StringIO(files['data.csv']))
-  # apply fixes...
-  files['data.csv'] = df.to_csv(index=False)
-  ```
+- You MUST put your python code inside the 'code' field of the JSON payload.
+- Example JSON pattern for execute_python:
+  {{
+    "action_type": "execute_python",
+    "payload": {{
+      "code": "import pandas as pd\nimport io\ndf = pd.read_csv(io.StringIO(files['data.csv']))\nfiles['data.csv'] = df.to_csv(index=False)\n"
+    }}
+  }}
 
 Strategic Tips:
 - Use "inspect_schema" or "view_head" FIRST to diagnose the problem. There is an "Inspect-First Bonus" (+0.05) to your reward for doing this.
@@ -128,7 +117,7 @@ Strategic Tips:
 
 Decide on the next action to progress data cleaning.
 
-CRITICAL: Your response must be a single, valid JSON object. 
+CRITICAL: Your response must be a single, valid JSON object matching the requested schema. 
 Do not include any words, markdown backticks, or thoughts outside the JSON.
 """
             user_msg = {"role": "user", "content": prompt}
@@ -137,19 +126,19 @@ Do not include any words, markdown backticks, or thoughts outside the JSON.
             messages.append(user_msg)
 
             try:
+                # Using the OpenAI python SDK's built-in structured output parsing
+                # Ollama supports this format seamlessly on newer versions!
                 response = openai_client.beta.chat.completions.parse(
-                    model="openai/gpt-4o-mini",
+                    model=OLLAMA_MODEL,
                     messages=messages,
                     response_format=LLMAction,
                 )
                 
-                # Update history so the agent remembers its actions
                 history.append(user_msg)
                 history.append({"role": "assistant", "content": response.choices[0].message.content})
 
                 llm_action = response.choices[0].message.parsed
                 payload_dict = llm_action.payload.model_dump(exclude_none=True)
-                # Sanitize to prevent "data.csv}}]}" hallucinations
                 payload_dict = sanitize_payload(payload_dict)
                 
                 action = OsworldAction(
@@ -176,7 +165,6 @@ Do not include any words, markdown backticks, or thoughts outside the JSON.
                 print(f"\n--- Episode {episode} Finished ---")
                 print(f"Final Score: {final_score:.4f}")
 
-    # Cleanly close the environment client after all episodes
     if hasattr(env, "close"):
         env.close()
 
