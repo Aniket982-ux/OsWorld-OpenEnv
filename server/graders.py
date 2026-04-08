@@ -149,7 +149,7 @@ class SemanticGrader:
     ) -> float:
         """
         Data quality: nulls in required cols, type correctness, string formatting.
-        Returns 0.0 (not 1.0) when no checks apply — no free points.
+        Returns 0.0 (not 1.0) when no checks apply  no free points.
         """
         if len(df) == 0:
             return 0.0
@@ -174,7 +174,7 @@ class SemanticGrader:
                 except Exception:
                     checks.append(0.0)
 
-        # 3. String formatting — values must be stripped and lowercased
+        # 3. String formatting  values must be stripped and lowercased
         for col in expected_df.columns:
             if col in df.columns and expected_df[col].dtype == "object":
                 try:
@@ -193,7 +193,7 @@ class SemanticGrader:
     def _constraint_score(self, df: pd.DataFrame, constraints: Dict[str, Any]) -> float:
         """
         Rule satisfaction: uniqueness, numeric ranges, required columns.
-        Returns 0.0 (not 1.0) when no checks apply — no free points.
+        Returns 0.0 (not 1.0) when no checks apply  no free points.
         """
         if len(df) == 0:
             return 0.0

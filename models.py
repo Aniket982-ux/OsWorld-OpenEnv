@@ -37,3 +37,5 @@ class OsworldObservation(Observation):
     files: Dict[str, str] = Field(default_factory=dict, description="Dictionary of current file states and contents")
     current_task: str = Field(default="", description="Description of the active task")
     score: float = Field(default=0.0, description="Current evaluation score from 0.0 to 1.0")
+    done: bool = Field(default=False, description="Whether the episode is finished")
+    reward: float = Field(default=0.0, description="Reward from the last step")

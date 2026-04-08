@@ -4,7 +4,7 @@ The Data Cleaning Environment presents AI agents with simulated programmatic cha
 
 ## Task Architecture
 
-There are **12 task variants** grouped into 3 difficulty tiers. The environment cycles through tiers automatically on each `reset()` call, advancing the variant within each tier sequentially.
+There are **15 task variants** grouped into 3 difficulty tiers. The environment cycles through tiers automatically on each `reset()` call, advancing the variant within each tier sequentially.
 
 ### 1. Easy Tier (4 variants)
 Fundamental schema and targeted parsing corrections.
@@ -23,7 +23,7 @@ Fundamental schema and targeted parsing corrections.
 
 ---
 
-### 2. Medium Tier (5 variants)
+### 2. Medium Tier (7 variants)
 Tasks combining structural issues with distinct semantic data quality problems.
 
 #### Variant A: Missing Value Imputation
@@ -41,19 +41,28 @@ Tasks combining structural issues with distinct semantic data quality problems.
 #### Variant E: JSON Normalization
 - **Goal:** Flatten deeply nested and ragged structure dictionaries into a clean, standardized tabular dataframe.
 
+#### Variant F: SQL Extraction
+- **Goal:** Load SQL dumps into SQLite and exporting a normalized join of `users` and `purchases`.
+
+#### Variant G: HTML Scraping
+- **Goal:** Parse messy HTML tables into clean structured formats with standardized column names.
+
 ---
 
-### 3. Hard Tier (3 variants)
+### 3. Hard Tier (4 variants)
 Multi-step, destructive data recovery scenarios.
 
 #### Variant A: Corrupted Pipeline Recovery
 - **Goal:** A dataset fully compromised with string formatting out of alignment, duplicate rows, missing values, and out-of-range constraints.
 
 #### Variant B: Adversarial Corruption
-- **Goal:** Syntactically intact but semantically impossible constraints. For example: biological age 150 or negative, max scores out of bound. Must clip valid boundaries without dropping rows.
+- **Goal:** Syntactically intact but semantically impossible constraints. Clipping boundary logic required.
 
 #### Variant C: Cascading Pipeline
-- **Goal:** Read base file and rate dependency file. Fill nulls, clean strings, perform currency conversions based off external rates, and save to a final composite file.
+- **Goal:** Multi-file dependency logic. Extract rates, compute new columns, fill bounds, and save to a final composite file.
+
+#### Variant D: Log Parsing
+- **Goal:** Extract structured records from unstructured system logs, ignoring lines with invalid metrics.
 
 ## Agent Constraints
 - The agent only "sees" the files exposed in the `files` observation dict.

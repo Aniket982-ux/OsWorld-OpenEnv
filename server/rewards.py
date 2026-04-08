@@ -1,7 +1,7 @@
 """
 Reward calculator for the OsWorld Data Cleaning Environment.
 
-R = step_penalty + ΔΦ + regression_penalty (if score drops) + terminal_bonus
+R = step_penalty +  + regression_penalty (if score drops) + terminal_bonus
 """
 
 
@@ -51,7 +51,7 @@ class RewardCalculator:
         if is_destructive:
             reward += self.destructive_penalty
 
-        # ΔΦ shaping
+        #  shaping
         delta = new_score - old_score
         reward += delta
 

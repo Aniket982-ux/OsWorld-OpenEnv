@@ -12,6 +12,22 @@ load_dotenv()
 from client import OsworldEnv
 from models import OsworldAction
 
+# --- ANSI Colors for Premium Dashboard ---
+C_BOLD = "\033[1m"
+C_BLUE = "\033[94m"
+C_CYAN = "\033[96m"
+C_GREEN = "\033[92m"
+C_YELLOW = "\033[93m"
+C_RED = "\033[91m"
+C_RESET = "\033[0m"
+
+def draw_phi_bar(phi: float, width: int = 20) -> str:
+    """Visual progress bar for the Phi score (0.0 to 1.0)."""
+    filled = int(phi * width)
+    bar = "█" * filled + "░" * (width - filled)
+    color = C_GREEN if phi >= 1.0 else C_YELLOW if phi > 0.5 else C_CYAN
+    return f"{color}[{bar}] {phi:.2f}{C_RESET}"
+
 class Payload(BaseModel):
     filename: str | None = None
     n: int | None = None
@@ -23,9 +39,9 @@ class LLMAction(BaseModel):
     action_type: str
     payload: Payload
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "dummy_key_if_local")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY", "dummy_key_if_local")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 TASK_NAME = os.getenv("OSWORLD_TASK", "data-cleaning")
 BENCHMARK = os.getenv("OSWORLD_BENCHMARK", "osworld")
@@ -50,13 +66,25 @@ def sanitize_payload(payload_dict: Dict[str, Any]) -> Dict[str, Any]:
         cleaned[k] = v
     return cleaned
 
-def log_start(task: str, env: str, model: str) -> None:
+def log_start(task: str, env: str, model: str, ep: int, total: int) -> None:
+    print(f"\n{C_BLUE}{C_BOLD}", flush=True)
+    print(f" EPISODE {ep}/{total} | TASK: {task} | ENV: {env}", flush=True)
+    print(f" MODEL: {model}", flush=True)
+    print(f"{C_RESET}", flush=True)
+    # The [START] tag must be exactly as required for the automated grader
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str], score: float) -> None:
+    # Human-friendly report
+    status = f"{C_GREEN}SUCCESS{C_RESET}" if done and score >= 1.0 else f"{C_YELLOW}STEPPING{C_RESET}"
+    if error:
+        status = f"{C_RED}ERROR{C_RESET}"
+    
+    print(f" {C_CYAN}Step {step:02d}{C_RESET} | {C_BOLD}{action:15}{C_RESET} | {draw_phi_bar(score)} | Reward: {reward:+.2f} | {status}", flush=True)
+    
+    # The [STEP] tag must be exactly as required for the automated grader
     error_val = error if error else "null"
     done_val = str(done).lower()
-    # Normalize action string formatting for the log
     action_str = action.replace('\n', '\\n').replace('"', "'")
     print(
         f"[STEP] step={step} action=\"{action_str}\" reward={reward:.2f} done={done_val} error={error_val}",
@@ -64,8 +92,16 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    result_color = C_GREEN if success else C_RED
+    result_str = "PASSED" if success else "FAILED"
+    total_reward = sum(rewards)
+    
+    print(f"{C_BOLD}--- Episode Statistics ---{C_RESET}", flush=True)
+    print(f"Result: {result_color}{result_str}{C_RESET} | Steps: {steps} | Phi Score: {score:.3f} | Total Reward: {total_reward:+.2f}", flush=True)
+    
+    # The [END] tag must be exactly as required for the automated grader
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}\n", flush=True)
 
 
 async def main() -> None:
@@ -85,7 +121,7 @@ async def main() -> None:
         success = False
         final_score = 0.0
 
-        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME, ep=episode, total=NUM_EPISODES)
 
         try:
             # Check if env is async or sync wrapper
@@ -186,7 +222,12 @@ Decide on the next action. Your response must be a single, valid JSON object mat
                         action = OsworldAction(action_type="pass", payload={})
 
                 except Exception as e:
-                    error = f"Model query error: {str(e)}"
+                    error_msg = str(e)
+                    if "402" in error_msg or "credits" in error_msg:
+                        error = "Credits Depleted (402)"
+                        print(f"  {C_RED} Error: API Credits Depleted. Stopping episode.{C_RESET}", flush=True)
+                    else:
+                        error = f"Model query error: {error_msg[:50]}..."
                     action_str = "pass"
                     action = OsworldAction(action_type="pass", payload={})
 
@@ -209,7 +250,7 @@ Decide on the next action. Your response must be a single, valid JSON object mat
                 steps_taken = step
                 final_score = getattr(obs, "score", 0.0)
 
-                log_step(step=step, action=action_str, reward=reward, done=done, error=error)
+                log_step(step=step, action=action_str, reward=reward, done=done, error=error, score=final_score)
 
             success = final_score >= 1.0
 

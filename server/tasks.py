@@ -30,9 +30,9 @@ class TaskConfig:
     constraints: Dict[str, Any]
     optimal_steps: int = 4
 
-# ─────────────────────────────────────────────
+# 
 # EASY TASKS
-# ─────────────────────────────────────────────
+# 
 
 def gen_duplicate_removal(seed: int) -> TaskConfig:
     fake = Faker()
@@ -119,9 +119,9 @@ def gen_column_rename_only(seed: int) -> TaskConfig:
         optimal_steps=2
     )
 
-# ─────────────────────────────────────────────
+# 
 # MEDIUM TASKS
-# ─────────────────────────────────────────────
+# 
 
 def gen_missing_value_imputation(seed: int) -> TaskConfig:
     fake = Faker()
@@ -252,9 +252,9 @@ def gen_json_normalization(seed: int) -> TaskConfig:
         optimal_steps=4
     )
 
-# ─────────────────────────────────────────────
+# 
 # HARD TASKS
-# ─────────────────────────────────────────────
+# 
 
 def gen_pipeline_recovery(seed: int) -> TaskConfig:
     fake = Faker()
@@ -365,9 +365,9 @@ def gen_cascading_pipeline(seed: int) -> TaskConfig:
         optimal_steps=6
     )
 
-# ─────────────────────────────────────────────
+# 
 # ETL / TEXT-BASED MULTI-FORMAT TASKS
-# ─────────────────────────────────────────────
+# 
 
 def gen_sql_extraction(seed: int) -> TaskConfig:
     fake = Faker()
@@ -453,9 +453,9 @@ def gen_log_parsing(seed: int) -> TaskConfig:
         optimal_steps=5
     )
 
-# ─────────────────────────────────────────────
+# 
 # Task Registry & Accessors
-# ─────────────────────────────────────────────
+# 
 
 TASK_REGISTRY: Dict[TaskLevel, List[Callable[[int], TaskConfig]]] = {
     TaskLevel.EASY: [gen_duplicate_removal, gen_format_normalization, gen_type_coercion, gen_column_rename_only],

@@ -36,7 +36,7 @@ Furthermore, if the agent performs a **destructive action** (e.g., catastrophica
 
 **Inspect-First Bonus (+0.05):** If the very first action the agent takes is a diagnostic one (`inspect_schema`, `view_head`, `read_file`), they receive a proactive +0.05 bonus. This reinforces "look-before-you-leap" methodology.
 
-**Terminal Bonus (Up to +1.00):** When $\Phi \geq 1.0$ (score reaches perfect clean status), the environment issues a terminal reward (max 1.0) and flips `done = True`, concluding the episode. This bonus is scaled dynamically by **efficiency** (`optimal_steps / actual_steps`); taking too many steps degrades this bonus toward 0.20.
+**Terminal Bonus (Up to +2.00):** When $\Phi \geq 1.0$ (score reaches perfect clean status), the environment issues a terminal reward (max 2.0) and flips `done = True`, concluding the episode. This bonus is scaled dynamically by **efficiency** (`optimal_steps / actual_steps`); taking too many steps degrades this bonus toward 0.40.
 
 ## Summary Episode Flow
 
@@ -58,7 +58,7 @@ Furthermore, if the agent performs a **destructive action** (e.g., catastrophica
 | Regression Penalty | -0.10 | Discourages destructive actions causing score drops |
 | Destructive Penalty| -0.50 | Harshly punishes catastrophic file truncation |
 | Inspect Bonus | +0.05 | Encourages dataset inspection before acting |
-| Terminal Bonus | +1.00 | Scaled completion incentive based on efficiency |
+| Terminal Bonus | +2.00 | Scaled completion incentive based on efficiency |
 
 ## Design Principle
 

@@ -67,6 +67,8 @@ class OsworldEnvironment(Environment):
 
     def _current_score(self) -> float:
         """Get current Φ score using the grader."""
+        if self.task_config is None:
+            return 0.0
         return self.grader.get_score(
             self.files,
             self.task_config.expected_df,
@@ -94,7 +96,7 @@ class OsworldEnvironment(Environment):
             requested = options["difficulty"].lower()
             self.task_level = difficulty_map.get(requested, get_next_level(self._reset_count))
         else:
-            # Automatic curriculum: EASY → MEDIUM → HARD → EASY …
+            # Automatic curriculum: EASY  MEDIUM  HARD  EASY 
             self.task_level = get_next_level(self._reset_count)
 
         seed = options.get("seed", random.randint(0, 10**8)) if options else random.randint(0, 10**8)
@@ -116,6 +118,10 @@ class OsworldEnvironment(Environment):
 
     def step(self, action: OsworldAction) -> OsworldObservation:  # type: ignore[override]
         """Execute an action and return the observation."""
+        if self.task_config is None:
+            # If step is called before reset, initialize with default task
+            self.reset()
+            
         self._state.step_count += 1
         
         if self._state.step_count == 1:
@@ -128,7 +134,7 @@ class OsworldEnvironment(Environment):
 
         old_score = self._current_score()
 
-        # ── Action Execution ──
+        #  Action Execution 
         if action.action_type == "execute_python":
             code = action.payload.get("code", "")
             # Snapshot files before exec so we can roll back on failure
@@ -234,7 +240,7 @@ class OsworldEnvironment(Environment):
             is_unknown = True
             self.screen_text = f"Unknown action: {action.action_type}"
 
-        # ── Grading & Reward ──
+        #  Grading & Reward 
         new_score = self._current_score()
         done = self._state.step_count >= self.max_steps or new_score >= 1.0
 

@@ -1,49 +1,37 @@
-# General / Environment
-.env
-.venv/
-venv/
-ENV/
-env.bak/
-.claude
-
-# Python / Caches
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache__/
-.ruff_cache/
-.mypy_cache/
-
-# Distribution / Packaging
+*.so
+.Python
+env/
 build/
 develop-eggs/
 dist/
 downloads/
 eggs/
-.eggs/
+.libs/
 lib/
 lib64/
 parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+.venv/
+venv/
+ENV/
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Logs
+*.log
+eval_*.txt
 
 # Project specific
-cleaned_data.csv
-data.csv
-final.csv
-Build_process/
-*.log
-
-# IDEs / OS files
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
+.openenv/

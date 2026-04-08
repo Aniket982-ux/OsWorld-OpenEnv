@@ -27,6 +27,12 @@ Usage:
     # Or run directly:
     python -m server.app
 """
+from dotenv import load_dotenv
+import os
+
+# Definitively enable the web interface for this deployment
+os.environ["ENABLE_WEB_INTERFACE"] = "true"
+load_dotenv(override=True)
 
 try:
     from openenv.core.env_server.http_server import create_app
@@ -53,26 +59,20 @@ app = create_app(
 )
 
 
-def main(host: str = "0.0.0.0", port: int = 8000):
+def main():
     """
     Entry point for direct execution via uv run or python -m.
-
-    This function enables running the server without Docker:
-        uv run --project . server
-        uv run --project . server --port 8001
-        python -m OsWorld.server.app
-
-    Args:
-        host: Host address to bind to (default: "0.0.0.0")
-        port: Port number to listen on (default: 8000)
-
-    For production deployments, consider using uvicorn directly with
-    multiple workers:
-        uvicorn OsWorld.server.app:app --workers 4
     """
     import uvicorn
+    import argparse
 
-    uvicorn.run(app, host=host, port=port)
+    parser = argparse.ArgumentParser(description="Run the Osworld Environment Server")
+    parser.add_id = True # Dummy to prevent issues if needed
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host address to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port number to listen on")
+    args = parser.parse_args()
+
+    uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == '__main__':

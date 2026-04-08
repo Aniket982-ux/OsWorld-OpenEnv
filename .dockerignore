@@ -1,37 +1,22 @@
-# Version control
-.git
-.gitignore
-
-# Environment files
-.env
-.venv
-venv/
-ENV/
-env.bak/
-.claude
-
-# Python caches and artifacts
+# Build
 __pycache__/
 *.py[cod]
-*$py.class
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-*.egg-info/
-build/
-dist/
+.venv/
+venv/
+.git/
+.gitignore
 
-# Project specific temp files and docs
-cleaned_data.csv
-data.csv
-final.csv
-Build_process/
+# Env
+.env
+.env.*
+
+# Logs
 *.log
+eval_*.txt
 
-# IDEs and OS files
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
+# Docs
+Build_process/
+README.md
+implementation_plan.md
+task.md
+walkthrough.md
