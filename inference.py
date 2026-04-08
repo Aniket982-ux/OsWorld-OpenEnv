@@ -35,9 +35,11 @@ LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 TASK_NAME = os.getenv("OSWORLD_TASK", "data-cleaning")
 BENCHMARK = os.getenv("OSWORLD_BENCHMARK", "osworld")
 
+NUM_EPISODES = int(os.getenv("NUM_EPISODES", 15))
+
 MAX_STEPS = 10
 TEMPERATURE = 0.0
-MAX_TOKENS = 256
+MAX_TOKENS = 2048
 
 
 def sanitize_payload(payload_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -110,17 +112,49 @@ def build_prompt(obs_dict: Dict[str, Any], history: List[str]) -> str:
     history_block = "\n".join(history[-4:]) if history else "None"
     return textwrap.dedent(
         f"""
-        You are a specialized Data Engineering Agent.
-
-        Current observation:
+        You are a specialized Data Engineering Agent. You must resolve data quality issues programmatically.
+        
+        Here is your current observation:
         {json.dumps(obs_dict, indent=2, ensure_ascii=False)}
 
         Previous actions:
         {history_block}
 
-        Decide the next action.
+        Your goal is to transform the provided datasets to match a rigorous clean structure. You are evaluated on:
+        - Content Accuracy: Ensuring precision and recall of the data records.
+        - Schema Integrity: Validating column names, types, and strict ordering.
+        - Data Validity: Eliminating nulls, standardizing formats, and correcting types.
+        - Constraint Satisfaction: Enforcing uniqueness and logical range boundaries.
 
-        Return exactly one valid JSON object with this schema:
+        ENVIRONMENT REWARDS & REASONING:
+        - This is a Reinforcement Learning environment. You receive positive rewards for incremental progress toward the clean state.
+        - Efficiency is critical. Your final evaluation score is scaled by how few actions you take to reach the goal.
+        - Catastrophic data loss (e.g., dropping the majority of rows accidentally) results in a heavy negative penalty.
+        - Professional methodology is incentivized. It is highly recommended to inspect the data and schema before committing to permanent changes.
+
+        Available Action Types:
+        1. "inspect_schema": Check column names and types. Use "filename" in payload.
+        2. "view_head": Look at the first N rows. Use "filename" and "n" (default 5) in payload.
+        3. "read_file": Read the entire file content. Use "filename" in payload.
+        4. "preview_changes": Test your "code" without saving changes. (Zero risk, high transparency).
+        5. "execute_python": Perform permanent file mutations via Python code.
+        6. "remove_duplicates": Utility to deduplicate a file. Use "filename".
+        7. "fill_nulls": Utility to fill missing values. Use "filename" and "value".
+
+        PYTHON EXECUTION RULES:
+        For `execute_python` and `preview_changes`, your code runs in a sandboxed `exec()` environment.
+        - You have access to a `files` dictionary containing the file strings.
+        - You MUST read and write the CSV via this dict: `files["data.csv"]`
+        - Example Pattern:
+          ```python
+          import pandas as pd
+          import io
+          df = pd.read_csv(io.StringIO(files['data.csv']))
+          # apply fixes...
+          files['data.csv'] = df.to_csv(index=False)
+          ```
+
+        Decide the next action. Return exactly one valid JSON object with this schema:
         {{
           "action_type": "<string>",
           "payload": {{
@@ -150,10 +184,35 @@ def get_model_action(client: OpenAI, obs_dict: Dict[str, Any], history: List[str
     )
 
     content = response.choices[0].message.content or "{}"
-    parsed = json.loads(content)
+    
+    # Strip markdown fences if the model included them
+    content = content.strip()
+    if content.startswith("```"):
+        # Remove the first line (e.g. ```json)
+        content = content.split("\n", 1)[-1]
+    if content.endswith("```"):
+        # Remove the last line
+        content = content.rsplit("\n", 1)[0]
+    content = content.strip()
+    
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        # Fallback if parsing completely fails
+        parsed = {"action_type": "pass", "payload": {}}
 
     llm_action = LLMAction(**parsed)
-    payload_dict = sanitize_payload(llm_action.payload.model_dump(exclude_none=True))
+    
+    if hasattr(llm_action.payload, "model_dump"):
+        raw_payload = llm_action.payload.model_dump(exclude_none=True)
+    elif hasattr(llm_action.payload, "dict"):
+        raw_payload = llm_action.payload.dict(exclude_none=True)
+    elif isinstance(llm_action.payload, dict):
+        raw_payload = {k: v for k, v in llm_action.payload.items() if v is not None}
+    else:
+        raw_payload = llm_action.payload
+        
+    payload_dict = sanitize_payload(raw_payload)
 
     return OsworldAction(
         action_type=llm_action.action_type,
@@ -165,7 +224,8 @@ async def make_env() -> Any:
     if LOCAL_IMAGE_NAME:
         return await OsworldEnv.from_docker_image(LOCAL_IMAGE_NAME)
 
-    env = OsworldEnv(base_url="https://aniket2886-osworld.hf.space")
+    env_url = os.getenv("OSWORLD_API_URL", "https://aniket2886-osworld.hf.space")
+    env = OsworldEnv(base_url=env_url)
     if hasattr(env, "sync"):
         return env.sync()
     return env
@@ -173,85 +233,105 @@ async def make_env() -> Any:
 
 async def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    env = await make_env()
 
-    history: List[str] = []
-    rewards: List[float] = []
-    steps_taken = 0
-    score = 0.0
-    success = False
-
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-
+    env = None
     try:
-        if hasattr(env, "reset_async"):
-            result = await env.reset_async()
-        else:
-            reset_fn = env.reset
-            result = await reset_fn() if asyncio.iscoroutinefunction(reset_fn) else reset_fn()
+        env = await make_env()
 
-        done = bool(getattr(result, "done", False))
-        obs = getattr(result, "observation", None)
+        for episode in range(1, NUM_EPISODES + 1):
+            history: List[str] = []
+            rewards: List[float] = []
+            steps_taken = 0
+            score = 0.0
+            success = False
 
-        for step in range(1, MAX_STEPS + 1):
-            if done:
-                break
-
-            obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else obs.dict()
+            log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+            
             try:
-                action = get_model_action(client, obs_dict, history)
-                action_type = action.action_type
-                payload_dict = action.payload.model_dump(exclude_none=True)
-                payload_dict = sanitize_payload(payload_dict)
-                env_action = OsworldAction(action_type=action_type, payload=payload_dict)
-                action_str = compact_action_string(action_type, payload_dict)
-            except Exception:
-                env_action = OsworldAction(action_type="pass", payload={})
-                action_str = compact_action_string("pass", {})
+                if hasattr(env, "reset_async"):
+                    result = await env.reset_async()
+                else:
+                    reset_fn = env.reset
+                    result = await reset_fn() if asyncio.iscoroutinefunction(reset_fn) else reset_fn()
 
-            if hasattr(env, "step_async"):
-                result = await env.step_async(env_action)
-            else:
-                step_fn = env.step
-                result = await step_fn(env_action) if asyncio.iscoroutinefunction(step_fn) else step_fn(env_action)
+                done = bool(getattr(result, "done", False))
+                obs = getattr(result, "observation", None)
 
-            obs = getattr(result, "observation", None)
-            done = bool(getattr(result, "done", False))
-            reward = float(getattr(result, "reward", 0.0) or 0.0)
+                for step in range(1, MAX_STEPS + 1):
+                    if done:
+                        break
 
-            rewards.append(reward)
-            steps_taken = step
+                    obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else obs.dict()
+                    try:
+                        action = get_model_action(client, obs_dict, history)
+                        action_type = action.action_type
+                        
+                        payload_obj = action.payload
+                        if hasattr(payload_obj, "model_dump"):
+                            payload_dict = payload_obj.model_dump(exclude_none=True)
+                        elif hasattr(payload_obj, "dict"):
+                            payload_dict = payload_obj.dict(exclude_none=True)
+                        else:
+                            payload_dict = payload_obj
+                        
+                        payload_dict = sanitize_payload(payload_dict)
+                        env_action = OsworldAction(action_type=action_type, payload=payload_dict)
+                        action_str = compact_action_string(action_type, payload_dict)
+                    except Exception as e:
+                        env_action = OsworldAction(action_type="pass", payload={})
+                        action_str = compact_action_string("pass", {})
 
-            error = extract_env_error(result)
+                    if hasattr(env, "step_async"):
+                        result = await env.step_async(env_action)
+                    else:
+                        step_fn = env.step
+                        result = await step_fn(env_action) if asyncio.iscoroutinefunction(step_fn) else step_fn(env_action)
 
-            if obs is not None and hasattr(obs, "screen_text") and isinstance(obs.screen_text, str) and "Error" in obs.screen_text:
-                error = error or obs.screen_text
+                    obs = getattr(result, "observation", None)
+                    done = bool(getattr(result, "done", False))
+                    reward = float(getattr(result, "reward", 0.0) or 0.0)
 
-            score = float(getattr(obs, "score", score) or score)
-            score = max(0.0, min(1.0, score))
+                    rewards.append(reward)
+                    steps_taken = step
 
-            log_step(step=step, action=action_str, reward=reward, done=done, error=error)
+                    error = extract_env_error(result)
 
-            history.append(f"Step {step}: {action_str} -> reward {reward:.2f}")
+                    if obs is not None and hasattr(obs, "screen_text") and isinstance(obs.screen_text, str) and "Error" in obs.screen_text:
+                        error = error or obs.screen_text
 
-            if done:
-                break
+                    score = float(getattr(obs, "score", score) or score)
+                    score = max(0.0, min(1.0, score))
 
-        score = max(0.0, min(1.0, float(score)))
-        success = score >= 1.0
+                    log_step(step=step, action=action_str, reward=reward, done=done, error=error)
 
-    except Exception:
-        success = False
+                    history.append(f"Step {step}: {action_str} -> reward {reward:.2f}")
+
+                    if done:
+                        break
+
+                score = max(0.0, min(1.0, float(score)))
+                success = score >= 1.0
+
+            except Exception as exc:
+                import sys
+                print(f"[SYSTEM ERROR] {exc}", file=sys.stderr)
+                success = False
+            finally:
+                log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
+    except Exception as exc:
+        import sys
+        print(f"[SYSTEM ERROR] {exc}", file=sys.stderr)
     finally:
         try:
-            if hasattr(env, "close"):
+            if env is not None and hasattr(env, "close"):
                 close_fn = env.close
                 if asyncio.iscoroutinefunction(close_fn):
                     await close_fn()
                 else:
                     close_fn()
-        finally:
-            log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
